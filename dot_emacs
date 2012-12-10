@@ -1,0 +1,389 @@
+; Notes:
+;
+;   * If not all colors display on console-mode Xterm reset TERM prior to launch:
+;        export TERM=xterm-256color
+;
+; Example for how to distinquish between console mode & X-windows 
+;   (if window-system
+;       (set-face-foreground 'font-lock-function-name-face "LightSkyBlue"))
+;
+; Keybind examples:
+;   (global-set-key (kbd "<f3>") 'comment-dwim)
+;   
+;   (global-set-key (kbd "C-<left>") 'cool)
+
+
+(global-font-lock-mode t)                  ; Globally enable syntax highlighting
+(setq font-lock-maximum-decoration t)      ; use colours in font lock mode
+(setq font-lock-maximum-size nil)          ; trun off limit on font lock mode
+
+(global-set-key "\M-g" 'goto-line)         ; Bind Alt-g
+ 
+(setq-default truncate-lines t)            ; do not wrap lines
+ 
+(setq-default scroll-step 1)               ; turn off jumpy scroll
+(setq scroll-conservatively 10000)         ;
+
+(setq-default visible-bell t)              ; no beeps, flash on errors
+
+(setq-default make-backup-files nil)       ; disable backup file generation
+ 
+(auto-save-mode nil)
+(setq-default transient-mark-mode t)       ; visual display of area being selected
+(display-time)                             ; display the time on modeline
+(column-number-mode t)                     ; display the column number on modeline
+
+(menu-bar-mode -1)                         ; disable menu bar
+
+(setq inhibit-startup-message t)           ; turn off splash screen
+
+
+(global-linum-mode 1)                     ; display line numbers for all files
+
+(setq-default indent-tabs-mode nil)
+
+(set-face-attribute 'default nil :height 80)
+
+
+;-------------------------------------------------------------------------------
+; Buffer Management
+;
+(global-set-key (kbd "M-1") 'next-buffer)
+(global-set-key (kbd "M-2") 'previous-buffer)
+
+(defun switch-to-previous-buffer ()
+  (interactive)
+  (switch-to-buffer (other-buffer)))
+
+(global-set-key (kbd "C-`") 'switch-to-previous-buffer) ; C-` toggles buffers
+
+
+;--------------------------------------------------------------------------------
+; Utilities
+;
+
+(defun dos2unix ()
+      "Not exactly but it's easier to remember"
+      (interactive)
+      (set-buffer-file-coding-system 'unix 't) )
+
+
+;--------------------------------------------------------------------------------
+; Electric Pair: automatically adds closing brace/paren
+;
+
+(defun electric-pair ()
+  "If at end of line, insert character pair without surrounding spaces.
+    Otherwise, just insert the typed character."
+  (interactive)
+  (if (eolp) (let (parens-require-spaces) (insert-pair)) (self-insert-command 1)))
+
+(defun electrify-mode (mode-map)
+  (define-key mode-map "\"" 'electric-pair)
+  (define-key mode-map "\'" 'electric-pair)
+  (define-key mode-map "("  'electric-pair)
+  (define-key mode-map "["  'electric-pair)
+  (define-key mode-map "{"  'electric-pair))
+
+;; placing the following line in the mode hook didn't work
+;; (add-hook 'python-mode-hook (lambda () (electrify-mode python-mode-map)))
+
+
+
+;-------------------------------------------------------------------------------
+; Python
+;
+
+(defun custom-python-mode-hook ()
+  (setq tab-width 4)          ; Use tabs instead of spaces
+  (setq indent-tabs-mode nil) ;
+
+  (define-key python-mode-map "\C-m" 'newline-and-indent)
+  (define-key python-mode-map (kbd "DEL") 'py-electric-backspace)
+
+  (setq linum-format "%d ")
+
+  (linum-mode) ; Display line numbers on left side of screen
+)
+
+
+(add-hook 'python-mode-hook 'custom-python-mode-hook)
+
+
+;-------------------------------------------------------------------------------
+; Lua
+;
+(add-to-list 'load-path "~/.emacs.d/")
+(setq auto-mode-alist (cons '("\\.lua$" . lua-mode) auto-mode-alist))
+(autoload 'lua-mode "lua-mode" "Lua editing mode." t)
+
+(defun custom-lua-mode-hook ()
+  (setq tab-width 4)          ; Use tabs instead of spaces
+  (setq indent-tabs-mode nil) ;
+  (setq lua-indent-level 4)
+
+  (define-key lua-mode-map "\C-m" 'newline-and-indent)
+
+  (setq linum-format "%d ")
+
+  (linum-mode) ; Display line numbers on left side of screen
+
+  ;(electrify-mode lua-mode-map) ; Automatically add closing pairs of operators
+
+
+  (font-lock-add-keywords nil '( ("\\<\\(0x[0-9a-fA-F]+\\)" 1 font-lock-number-face)
+				 ("[^_]\\<\\([0-9]+\\)" 1 font-lock-number-face)
+				 ("\\([][#~!@$%^&*()+=;'\"<>,./\\{}`?:|-]\\)" 1 font-lock-operator-face)			    
+				 ))
+
+)
+
+(add-hook 'lua-mode-hook 'custom-lua-mode-hook)
+
+
+;-------------------------------------------------------------------------------
+; CMake
+;
+;(add-to-list 'load-path "~/.emacs.d/")
+;(setq auto-mode-alist (cons '("CMakeLists\\.txt$" . cmake-mode) auto-mode-alist))
+;(autoload 'cmake-mode "cmake-mode" "CMake editing mode." t)
+;(require 'cmake-mode)
+;  (setq auto-mode-alist
+;        (append '(("CMakeLists\\.txt\\'" . cmake-mode)
+;                  ("\\.cmake\\'" . cmake-mode))
+;                auto-mode-alist))
+
+
+;-------------------------------------------------------------------------------
+; C/C++/Java 
+;
+(defconst cocagne-style
+  '((c-basic-offset . 3)
+    (indent-tabs-mode . nil) ; use spaces rather than tabs
+    (c-tab-always-indent        . t)
+    (c-comment-only-line-offset . 0)
+    (c-offsets-alist . ((string . c-lineup-dont-change)
+            (c . c-lineup-C-comments)            
+            (defun-open . 0)
+            (defun-close . 0)
+            (defun-block-intro . +)
+            (class-open . 0)
+            (class-close . 0)
+            (inline-open . 0)
+            (inline-close . 0)
+            (func-decl-cont . ++)
+            (knr-argdecl-intro . +)
+            (knr-argdecl . 0)
+            (topmost-intro . 0)
+            (topmost-intro-cont . 0)
+            (member-init-intro . ++)
+            (member-init-cont . c-lineup-multi-inher)
+            (inher-intro . +)
+            (inher-cont . c-lineup-multi-inher)
+            (block-open . 0)
+            (block-close . 0)
+            (brace-list-open . 0)
+            (brace-list-close . 0)
+            (brace-list-intro . +)
+            (brace-list-entry . 0)
+            (brace-entry-open . 0)
+            (statement . 0)
+            (statement-cont . 0)
+            (statement-block-intro . +)
+            (statement-case-intro . +)
+            (statement-case-open . 0)
+            (substatement . +)
+            (substatement-open . 0)
+            (case-label . *)
+            (access-label . /)
+            (label . *)
+            (do-while-closure . 0)
+            (else-clause . 0)
+            (catch-clause . 0)
+            (comment-intro . c-lineup-comment)
+            (arglist-intro . +)
+            (arglist-cont . 0)
+            (arglist-cont-nonempty . c-lineup-arglist)
+            (arglist-close . 0)
+            (stream-op . c-lineup-streamop)
+            (inclass . +)
+            (cpp-macro . [0])
+            (cpp-macro-cont . c-lineup-dont-change)
+            (friend . 0)
+            (extern-lang-open . 0)
+            (extern-lang-close . 0)
+            (inextern-lang . +)
+            (namespace-open . 0)
+            (namespace-close . 0)
+            (innamespace . 0)
+	    (inmodule . 0)
+            (template-args-cont c-lineup-template-args +)
+            (inlambda . c-lineup-inexpr-block)
+            (lambda-intro-cont . +)
+            (inexpr-statement . 0)
+            (inexpr-class . +)
+))))
+
+(c-add-style "PERSONAL" cocagne-style)
+
+
+
+
+
+(defun custom-c-mode-hook ()
+  ;; set my personal style for the current buffer
+  (c-set-style "PERSONAL")
+  ;; other customizations
+  (setq tab-width 3
+        ;; this will make sure spaces are used instead of tabs
+        indent-tabs-mode nil)
+  (define-key c-mode-base-map "\C-m" 'c-context-line-break)
+
+  (setq linum-format "%d ")
+
+  (linum-mode) ; Display line numbers on left side of screen
+
+  ;(electrify-mode c-mode-map) ; Automatically add closing pairs of operators
+
+  ;(font-lock-add-keywords nil custom-c-keywords)
+
+
+  (font-lock-add-keywords nil '(
+                ;;("\\(class\\|virtual\\|public\\|private\\|protected\\)" . font-lock-keyword-face) 
+            	;;("\\(template\\|using\\|friend\\|boost\\|\\<std\\)" . font-lock-keyword-face) 
+            	("\\(size_t\\|string\\|uint8_t\\|int8_t\\|uint16_t\\|int16_t\\)" . font-lock-type-face) 
+            	("\\(uint32_t\\|int32_t\\|uint64_t\\|int64_t\\)" . font-lock-type-face)
+            	;;("boost::\\([a-zA-Z0-9_]+\\)" 1 font-lock-type-face)
+            	;;("std::\\([a-zA-Z0-9_]+\\)" 1 font-lock-type-face)
+            	("\\<\\(0x[0-9a-fA-F]+\\)" 1 font-lock-number-face)
+            	("[^_]\\<\\([0-9]+\\)" 1 font-lock-number-face)
+            	("\\([][~!@$%^&*()+=;'\"<>,./\\{}`?:|-]\\)" 1 font-lock-operator-face)                
+            	))
+
+)
+
+
+(add-hook 'c-mode-common-hook 'custom-c-mode-hook)
+
+
+;--------------------------------------------------------------------------------
+; Syntax Highlighting
+;
+
+(defface font-lock-operator-face
+  '((t (:background "black" :foreground "yellow1")))
+  "Highlights all operators")
+
+(defface font-lock-number-face
+  '((t (:background "black" :foreground "blue")))
+  "Highlights numbers")
+
+(defvar custom-c-keywords '( ("\\<\\(0x[0-9a-fA-F]+\\)" 1 font-lock-number-face)
+                 ("[^_]\\<\\([0-9]+\\)" 1 font-lock-number-face)
+                 ("\\([][~!@$%^&*()+=;'\"<>,./\\{}`?:|-]\\)" 1 font-lock-operator-face)                
+                 ))
+
+
+(setq font-lock-operator-face 'font-lock-operator-face)
+(setq font-lock-number-face 'font-lock-number-face)
+
+(font-lock-add-keywords 'python-mode custom-c-keywords)
+
+;(add-hook 'python-mode-hook
+;  (lambda ()
+;   (font-lock-add-keywords nil custom-c-keywords)))
+
+
+;;-----------------------------------------------------------------------------
+;; Angry Fruit Salad Fixer. Pulled from www.emacswiki.org
+;;
+
+(defun egoge-wash-out-colour (colour &optional degree)
+"Return a colour string specifying a washed-out version of COLOUR."
+(let ((basec (color-values
+              (face-attribute 'default :foreground)))
+      (col (color-values colour))
+      (list nil))
+  (unless degree (setq degree 2))
+  (while col
+    (push (/ (/ (+ (pop col)
+                   (* degree (pop basec)))
+                (1+ degree))
+             256)
+          list))
+  (apply 'format "#%02x%02x%02x" (nreverse list))))
+ 
+(defun egoge-wash-out-face (face &optional degree)
+ "Make the foreground colour of FACE appear a bit more pale."
+ (let ((colour (face-attribute face :foreground)))
+   (unless (eq colour 'unspecified)
+     (set-face-attribute face nil
+                        :foreground (egoge-wash-out-colour colour degree)))))
+ 
+(defun egoge-find-faces (regexp)
+ "Return a list of all faces whose names match REGEXP."
+ (delq nil
+      (mapcar (lambda (face)
+                (and (string-match regexp
+                                   (symbol-name face))
+                     face))
+              (face-list))))
+ 
+(defun egoge-wash-out-fontlock-faces (&optional degree)
+ (mapc (lambda (elt)
+        (egoge-wash-out-face elt degree))
+      (delq 'font-lock-warning-face
+            (egoge-find-faces "^font-lock"))))
+ 
+(when (> (length (defined-colors)) 16)
+ (egoge-wash-out-fontlock-faces 0.5))
+
+
+;;'(c-offsets-alist (quote ((inline-open . 0) (func-decl-cont . ++) (member-init-intro . ++) (substatement-open . 0) (substatement-label . 2) (case-label . 2) (access-label . 2) (label . 2) (innamespace . 0))))
+
+;;---------------------------------------------------------------------------
+;; Customized Items
+;;
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(delete-selection-mode nil)
+ '(mark-even-if-inactive t)
+ '(scroll-bar-mode (quote right))
+ '(transient-mark-mode 1))
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(default ((t (:inherit nil :stipple nil :background "black" :foreground "darkgray" :inverse-video nil :box nil :strike-through nil :overline nil :underline nil :slant normal :weight normal :height 83 :width normal :foundry "unknown" :family "Droid Sans Mono"))))
+ '(font-lock-builtin-face ((t (:foreground "green1"))))
+ '(font-lock-comment-delimiter-face ((t (:foreground "cyan"))))
+ '(font-lock-comment-face ((t (:foreground "cyan"))))
+ '(font-lock-constant-face ((t (:foreground "red"))))
+ '(font-lock-doc-face ((t (:foreground "wheat"))))
+ '(font-lock-function-name-face ((t (:foreground "darkgray"))))
+ '(font-lock-keyword-face ((t (:foreground "red1"))))
+ '(font-lock-negation-char-face ((t (nil))))
+ '(font-lock-number-face ((t (:background "black" :foreground "RoyalBlue"))))
+ '(font-lock-operator-face ((t (:background "black" :foreground "yellow1"))))
+ '(font-lock-preprocessor-face ((t (:foreground "magenta3"))))
+ '(font-lock-regexp-grouping-backslash ((t (:underline t :foreground "white" :background "black"))))
+ '(font-lock-regexp-grouping-construct ((t (:underline t :foreground "white" :background "black"))))
+ '(font-lock-string-face ((t (:foreground "green"))))
+ '(font-lock-type-face ((t (:foreground "green4"))))
+ '(font-lock-variable-name-face ((t (:foreground "wheat"))))
+ '(font-lock-warning-face ((t (:bold t :foreground "magenta" :weight bold))))
+ '(linum ((t (:foreground "grey30"))))
+ '(minibuffer-prompt ((t (:foreground "cyan"))))
+ '(mode-line ((t (:background "grey70" :foreground "blue" :box (:line-width -1 :style released-button)))))
+ '(mode-line-buffer-id ((t (:bold t :background "grey70" :foreground "darkred" :weight bold))))
+ '(mode-line-emphasis ((t (:bold t :weight bold))))
+ '(mode-line-highlight ((t (:box (:line-width 2 :color "grey40" :style released-button)))))
+ '(mode-line-inactive ((t (:background "grey30" :foreground "grey80" :box (:line-width -1 :color "grey40" :style nil) :weight light))))
+ '(modeline-mousable ((t (:background "grey70" :foreground "magenta"))))
+ '(modeline-mousable-minor-mode ((t (:background "grey70" :foreground "yellow"))))
+ '(py-exception-name-face ((t (:foreground "red1")))))
+

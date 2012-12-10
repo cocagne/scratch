@@ -1,0 +1,36 @@
+#!/usr/bin/env lua
+
+alib = package.loadlib("/home/thomas.cocagne/devel/build/sg2/libabidos.so", "luaopen_abidos")
+
+alib()
+
+
+w = abidos.load_world("FooWorld", "/home/thomas.cocagne/devel/stargate/test_world.wdf")
+
+wi = w:newInterface("lua_iface")
+
+m = abidos.create_model( w._cxx, "/home/thomas.cocagne/devel/build/sg2/libtest_model.so", "new_test_model" )
+
+
+function on_obj_create( o )
+    print("LUA Callback: New object created of type: "..o.type_id)
+end
+
+
+wi:addCallback( 0, on_obj_create )
+
+print( "Model: " .. type(m) )
+
+print("--------- Tick 1 ---------")
+m:tick()
+print("********* Lua Run Callbacks ********")
+wi:runCallbacks()
+print("--------- Tick 2 ---------")
+m:tick()
+print("********* Lua Run Callbacks ********")
+wi:runCallbacks()
+print("--------- Tick 3 ---------")
+m:tick()
+print("********* Lua Run Callbacks ********")
+wi:runCallbacks()
+print("---------------------------- DONE ----------------------------")

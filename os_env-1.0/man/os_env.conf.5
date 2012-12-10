@@ -1,0 +1,115 @@
+.\" Hey, Emacs! This is an -*- nroff -*- source file.
+.\"
+.\" Proccess this file with
+.\" groff -man -Tascii os_env.conf.5
+.\"
+.TH os_env 1 "May 2011" "User Manuals"
+.SH NAME
+os_env.conf \- Configuration file for an
+.B
+os_env
+embedded environment
+.SH SYNOPSIS
+.B <os_environment_root_directory>/os_env.conf
+.SH DESCRIPTION
+This file contains one or more profiles for directories to overmount
+and environment variables to override in 
+.B os_env 
+processes. The file format is standard Javascript Object 
+Notation (JSON). The content of the file defines a single JSON object
+where each variable name is the name of a profile and the value is a
+JSON object containing that profile's content.
+
+.SH PROFILES
+Profiles may define three variables:
+.B inherit, mounts,
+and
+.B environment
+Each variable is optional. However, in order to use a profile it,
+or one of the profiles it inherits from, must define at least one
+mount override.
+
+.SH INHERIT VARIABLE
+If provided, this variable must be a string containing the name of
+another profile. The mount point override list and environment list
+from the inherited profile will be copied into the inheriting profile.
+Chaining of multiple profiles via the 
+.B inherit
+variable is supported.
+.PP
+The inherited values for the
+.B mounts
+and
+.B environment 
+lists are always placed at the beginning of the list. Each link in
+the inheritance chain appends it's values to the list. 
+
+.SH MOUNT VARIABLE
+If provided, the
+.B mounts
+variable must be a list of strings. Each entry in the list must conform to
+the following format:
+   "embedded_os_dir host_os_dir"
+
+Neither entry requires a leading '/' (this is assumed) and the 
+.I host_os_dir
+will default to the same value as the 
+.I embedded_os_dir
+if it is omitted. If the profile inherits any mount points, the values
+defined by the 
+.B mounts
+variable will be appended to the inherited values.
+
+.I Note:
+The 
+.B os_env
+utility will overmount directories in the order provided by the mounts
+list.
+
+.I Example:
+    "mounts" : ["bin", "/usr/local /opt", "lib", "usr"]
+
+.SH ENVIRONMENT VARIABLE
+If provided, the 
+.B environment
+variable must be a list where each value in the list conforms to the
+following format:
+    ["VAR_NAME", "value"]
+
+Each element of the environment list is specified as a 2-element list.
+The entries in the environment list are processed in the order listed
+and the modifications to the process's environment are made after each
+element is processed. The value strings may refer to other environment 
+variables in a manner similar to shell variables by either pefixing them
+with a
+.I $
+or enclosing them with
+.I ${}
+Ex: "/foo/bar:$PATH:/home/${USER}_homedir".
+
+.I Example:
+    "environment" : [["TEMP", "/tmp/foo"], ["PATH", "/foo:$PATH"]]
+
+.SH EXAMPLE
+.nf
+{
+  "default" : {
+    "mounts" : ["bin", "etc", "lib", "sbin", "usr"]
+  },
+
+  "mod_path" : {
+    "inherit" : "default",
+    "environment" :
+      [ [ "PATH", "/custom_path_prefix:$PATH"],
+        [ "MY_VAR", "foo"] ]
+  },
+
+  "with_var" : {
+    "inherit" : "mod_path",
+    "mounts" : ["var /var"]
+  }
+}
+.fi
+.SH "SEE ALSO"
+.BR os_env(1)    
+.BR os_env_update(1)

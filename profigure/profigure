@@ -1,0 +1,696 @@
+#!/usr/bin/python
+
+import sys            
+import os
+import os.path
+import shutil
+import getpass
+import socket
+
+from   optparse import OptionParser
+
+from   twisted.spread            import pb
+from   twisted.internet          import reactor, protocol, defer, threads
+from   twisted.internet.protocol import Factory
+
+this_file    = os.path.abspath( __file__ )
+this_dir     = os.path.dirname( this_file )
+
+sys.path.append( os.path.dirname( this_dir ) )
+
+import profigure
+from   profigure import colors, roster, admin, pro_conf
+
+
+class UsageError (profigure.ProfigureException): 
+    pass
+
+class ArgsError (profigure.ProfigureException):
+    pass
+
+class DontConnect (Exception):
+    pass
+
+class DependencyError (Exception):
+    pass
+
+
+# Note: Each command function is called twice. Once to verify the command-line arguments
+#       (the connection object will be None) and a second time to preform the actual task.
+#
+
+
+commands = dict()
+
+
+def get_new_password( username ):
+    
+    p1 = 'dont'
+    p2 = 'match'
+    while p1 != p2:
+        p1 = getpass.getpass('Enter   new password for %s: ' % username)
+        p2 = getpass.getpass('Confirm new password for %s: ' % username)
+        if p1 != p2:
+            print 'Error: Passwords do not match'
+    return p1
+
+
+def get_doctrine_dir( command_name ):
+    doctrine_dir = os.path.abspath('.')
+
+    while not (os.path.isfile(os.path.join(doctrine_dir,'roster')) and os.path.isdir(os.path.join(doctrine_dir, '.hg'))):
+        doctrine_dir = os.path.dirname( doctrine_dir )
+
+        if doctrine_dir == '/':
+            raise ArgsError('profigure command "%s" must be run from within a doctrine directory' % command_name)
+
+    return doctrine_dir
+
+
+def check_hgrc():
+    hgrc = os.path.expanduser('~/.hgrc')
+    if not os.path.exists( hgrc ):
+        print 'Generating a default ~/.hgrc'
+        try:
+            with open( hgrc, 'w' ) as f:
+                f.write('[ui]\nusername = %s\n\n' % getpass.getuser())
+        except Exception, e:
+            print 'Failed to create ~/.hgrc: ' + str(e)
+            print 'Please create the file manually with at least the following content:'
+            print '    [ui]'
+            print '    username = <your user name>'
+            print ''
+            
+    try:
+        from profigure import hg_interface
+    except ImportError:
+        raise DependencyError("Missing required dependency Mercurial: 'hg' command not found")
+    
+
+_example_roster = '''
+# Enter your master daemons address below in format: hostname:port_number
+
+MASTER = localhost:1234
+
+# All hostnames below this point will belong to only the 'default' role
+#
+# To add a role, enclose the name in brackets. Ex: "[webservers]"
+# To add hosts to a role, simply list their names on the lines following the role declaration.
+# Only one host per line is permitted and a host may belong to only one role at a time.
+# Ex:
+#    [webservers]
+#    host1
+#    host2
+#
+#
+# Roles may inherit properties from another role by adding parent roles to the role
+# declaration. Ex: [ secure_internal : webservers, no_user_login ]
+#
+'''
+
+_example_doctrine = '''
+from profigure import *
+
+
+# This script defines its Doctrine by adding files to a Doctrine object.
+# Profigure requires that the variable holding the Doctrine instance be
+# named "doctrine".
+# 
+doctrine = Doctrine()
+        
+# The following line tells Profigure that the file "roles/default/fstab.tmpl" should be used to
+# generate "/etc/fstab". It will be treated as a Cheetah template due to the ".tmpl" extension
+#doctrine.add_config_file("/etc/fstab",       "fstab.tmpl")
+    
+# The following line tells Profigure that the file "roles/default/resolv.conf" should be copied,
+# verbatim to "/etc/resolv.conf". Since it does not end with the ".tmpl" extension, Profigure
+# will not inspect or modify the file content
+#doctrine.add_config_file("/etc/resolv.conf", "resolve.conf")
+    
+
+'''
+
+_hg_ignore = '''
+syntax: re
+
+# Filter: ".#backup.py"
+\.\#
+
+# Filter: *.pyc
+\.pyc$
+
+# Filter all content in the results directory
+^results
+'''
+
+#----------------------------------------------------------------------------------------
+# ping
+#
+ping_desc = 'Pings all hosts (or a specified subset) to check for availability'
+ping_ops  = OptionParser('profigure ping [options] [hostnames]')
+ping_ops.add_option('-v', action='store_true', dest='verbose', default=False,
+                    help='Verbose output. Prints online/offline status for every host')
+ping_ops.add_option('--online', action='store_true', dest='online', default=True,
+                    help='Prints all online hosts')
+ping_ops.add_option('--offline', action='store_true', dest='offline', default=False,
+                    help='Prints all offline hosts')
+                    
+def ping( con, options, args ):
+    
+    if con is None:   # Any combination of arguments is OK
+        return
+    
+    d = con.ping( args )
+    
+    def done( dlist ):
+        mn = max( len(t[1][0]) for t in dlist ) + 1
+        for (result, (name, err)) in dlist:
+            if options.verbose or (err and options.offline) or (not err and options.online):
+                if err is None:
+                    print name.ljust(mn) + colors.wrap('[online]', 'green')
+                else:
+                    print name.ljust(mn) + colors.wrap('[offline]', 'red')
+    
+    d.addCallback( done )
+                
+    
+    return d
+
+commands['ping'] = (ping_desc, ping_ops, ping)
+
+
+#----------------------------------------------------------------------------------------
+# add_admin
+#
+add_admin_desc = 'Adds a profigure administrator'
+add_admin_ops  = OptionParser('profigure add_admin <admin_user_name>')                    
+def add_admin( con, options, args ):
+    if len(args) != 1:
+        raise ArgsError('Only a single administrator may be added at a time' if len(args) > 1 else 'An administrator name must be specied')
+    
+    if con:
+        
+        d = threads.deferToThread( lambda : get_new_password( args[0] ) )
+        
+        def got_pw( passwd ):
+            return con.add_admin( args[0], passwd )
+        
+        d.addCallback( got_pw )
+        
+        return d
+
+commands['add_admin'] = (add_admin_desc, add_admin_ops, add_admin)
+
+
+#----------------------------------------------------------------------------------------
+# remove_admin
+#
+remove_admin_desc = 'Removes a profigure administrator'
+remove_admin_ops  = OptionParser('profigure remove_admin <admin_user_name>')                    
+def remove_admin( con, options, args ):
+    if len(args) != 1:
+        raise ArgsError('Only a single administrator may be removed at a time' if len(args) > 1 else 'An administrator name must be specied')
+    
+    if con:
+        return con.remove_admin( args[0] )
+
+commands['remove_admin'] = (remove_admin_desc, remove_admin_ops, remove_admin)
+
+
+#----------------------------------------------------------------------------------------
+# test_config
+#
+test_config_desc  = 'Tests the current doctrine against all hosts affected by any changes. The resulting configuation '
+test_config_desc += 'files are output to <top_level_doctrine_dir>/results'''
+test_config_ops   = OptionParser('profigure test_config')
+
+def test_config( con, options, args ):
+    
+    doctrine_dir = get_doctrine_dir( 'test_config' )
+
+    check_hgrc()
+    
+    if con:
+        return con.test_config( doctrine_dir )
+    
+    
+    
+commands['test_config'] = (test_config_desc, test_config_ops, test_config)
+
+
+#----------------------------------------------------------------------------------------
+# apply_config
+#
+apply_config_desc  = 'Commands all hosts to update their configurations to match that of the local repository. All changes must be commited prior to issuing this command.'
+apply_config_desc += 'files are output to <top_level_doctrine_dir>/results'''
+apply_config_ops   = OptionParser('profigure apply_config')
+
+def apply_config( con, options, args ):
+    
+    doctrine_dir = get_doctrine_dir( 'apply_config' )
+
+    check_hgrc()
+    
+    if con:
+        d = con.apply_config( doctrine_dir )
+        
+        def results( fail_list ):
+            if fail_list:
+                print 'The following hosts encountered errors during the apply_config process:'
+                for f in fail_list:
+                    print '    ' + colors.wrap(f, 'red')
+            else:
+                print 'All online hosts were successfully configured'
+        
+        d.addCallback( results )
+        
+        return d
+    
+    
+    
+commands['apply_config'] = (apply_config_desc, apply_config_ops, apply_config)
+
+
+#----------------------------------------------------------------------------------------
+# add_host
+#
+add_host_desc = 'Configures the local machine as a profigure host and registers the new host with the profigure master'
+add_host_ops  = OptionParser('profigure add_host [hostname]')
+def add_host( con, options, args ):
+    if len(args) > 1:
+        raise ArgsError('Only a single hostname may be specified')
+    
+    conf_dir    = '.'
+        
+    passwd_file = os.path.join(conf_dir, 'passwd')
+    conf_file   = os.path.join(conf_dir, 'profigure.conf')
+    
+    if os.path.exists(passwd_file):
+        raise ArgsError('Password file already exists')
+    
+    
+    def gen_pass(nbytes):
+        l = list()
+        while len(l) < nbytes:
+            n = ord( os.urandom(1)[0] )
+            if n >= 32 and n <= 126:
+                l.append( chr(n) )
+        return ''.join(l)
+
+    
+    if con:
+
+        hostname = args[0] if args else socket.gethostname()
+        if '.' in hostname:
+            hostname = hostname.split('.')[0]
+            
+        password = gen_pass(16)
+        
+        um = os.umask(0077)
+        with open(passwd_file, 'w') as f:
+            f.write(password)
+            
+        with open(conf_file, 'w') as f:
+            f.write( 'master    = %s:%d\n\n' % (master_hostname, master_port))
+            f.write( 'hostname  = %s\n' % hostname )
+            f.write( 'host_port = %d\n' % 1235 )
+            
+            
+        os.umask(um)
+        
+        os.chmod(conf_file, 0644)
+        
+        return con.add_host( hostname, password )
+
+commands['add_host'] = (add_host_desc, add_host_ops, add_host)
+
+
+#----------------------------------------------------------------------------------------
+# remove_host
+#
+remove_host_desc = 'Removes the spcified host from profigure oversight'
+remove_host_ops  = OptionParser('profigure remove_host <hostname>')
+def remove_host( con, options, args ):
+    if len(args) != 1:
+        raise ArgsError('A single hostname must be specified')
+    
+    if con:
+        return con.remove_host( args[0] )
+
+commands['remove_host'] = (remove_host_desc, remove_host_ops, remove_host)
+
+
+
+#----------------------------------------------------------------------------------------
+# get_doctrine
+#
+get_doctrine_desc = 'Creates a new copy of the master doctrine repository. SSH and/or HTTP may be used to access the repository remotely if the repository is configured correctly (see Mercurial documentation)'
+get_doctrine_ops  = OptionParser('profigure get_doctrine <master_database_directory> <destination_dir>')                    
+def get_doctrine( con, options, args ):
+    import subprocess
+    
+    if len(args) != 2:
+        raise UsageError('A master database directory and doctrine directory must be specified')
+    
+    check_hgrc()
+    
+    # Configuration files are potentially sensitive. Require the user to explicitly allow other users to see
+    # the files
+    os.umask( 0077 )
+
+    mr = args[0]
+    if not mr.endswith('repository'):
+        mr = mr + ( 'repository' if mr.endswith('/') else '/repository' )
+    
+    def path_find( cmd_name ):
+        for p in os.environ['PATH'].split(':'):
+            fp = os.path.join( os.path.expanduser(os.path.expandvars(p)), cmd_name )
+            if os.path.exists( fp ):
+                return fp
+
+    fq_hg = path_find('hg')
+    ddir  = args[1]
+    
+    if not os.path.exists( ddir ):
+        os.execl( fq_hg, fq_hg, 'clone', mr, ddir)
+
+
+commands['get_doctrine'] = (get_doctrine_desc, get_doctrine_ops, get_doctrine)
+
+
+#----------------------------------------------------------------------------------------
+# init_master
+#
+init_master_desc = 'Initializes a profigure master database on the local machine'
+init_master_ops  = OptionParser('profigure init_master <master_database_directory> [admin_group_name]')
+def init_master( con, options, args ):
+    import subprocess
+    from   profigure import srp_db, acct_db
+    
+    check_hgrc()
+    
+    if len(args) < 1:
+        raise ArgsError('A single database directory must be specified')
+    
+    if len(args) > 2:
+        raise UsageError('Too many arguments for init_master command')
+    
+    master_dir     = args[0]
+    admin_group    = args[1] if len(args) > 1 else None
+    repos_dir      = os.path.join(master_dir, 'repository')
+    admin_name     = getpass.getuser()
+    adname         = admin_name
+    admin_password = ''
+    done           = False
+    confirm_set    = ('', 'Y','y','yes','ok','youbetcha','justdoitalready')
+    
+    if os.path.exists( master_dir ):
+        raise ArgsError('Target directory %s already exists' % master_dir)
+    
+    if admin_group:
+        import grp
+        os.umask( 0007 ) # Limit read/write to user & group
+        try:
+            g = grp.getgrnam( admin_group )
+            os.setegid( g.gr_gid )
+            os.setgid( g.gr_gid )
+        except OSError:
+            raise ArgsError('Failed to set group id to %s' % admin_group)
+        except KeyError:
+            raise ArgsError('Unknown group: %s' % admin_group)
+        
+    else:
+        os.umask( 0077 ) # Limit read/write to user only
+    
+    while not done:
+        adname = raw_input('Enter primary administrator username [%s]: ' % adname)
+        adname = adname.strip()
+        
+        if not adname:
+            adname = admin_name
+        
+        p1         = getpass.getpass('Enter password: ')
+        p2         = getpass.getpass('Confirm password: ')
+        
+        if p1 != p2:
+            print 'Mismatched passwords.'
+            continue
+        
+        c = raw_input('Initialize Profigure with administrator "%s" [Y/n]: ' % adname)
+        
+        if c in confirm_set:
+            admin_name = adname
+            admin_password = p1
+            done = True
+    
+    if not os.path.exists( master_dir ):
+        os.makedirs( master_dir )
+        
+    s = srp_db.SqliteSrpDB( os.path.join(master_dir, 'srp_db.sqlite') )
+    s.add_user( admin_name, admin_password )
+    s.close()
+    
+    a = acct_db.AcctDB( os.path.join(master_dir, 'acct_db.sqlite') )
+    a.add_admin( admin_name, set(['master',]) )
+    a.close()
+    
+    # ------ profigure.conf -------
+    hostname   = socket.gethostname()
+    abs_master = os.path.abspath( master_dir )
+    conf_file  = os.path.join(master_dir, 'profigure.conf')
+    
+    um = os.umask(0077)
+    
+    with open(conf_file, 'w') as f:
+        f.write( 'master       = %s:1234\n' % hostname)
+        f.write( 'database_dir = %s\n' % abs_master )
+        f.write( 'log_dir      = %s\n\n' % os.path.join(abs_master, 'logs') )
+        f.write( 'hostname     = %s\n' % hostname )
+        f.write( 'host_port    = 1235\n' )
+            
+    os.umask(um)
+        
+    os.chmod(conf_file, 0644)
+    
+    # ------ HG Repository ------
+    
+    p = subprocess.Popen("hg init %s" % repos_dir, shell=True)
+    os.waitpid(p.pid,0)
+    
+    os.makedirs( os.path.join(repos_dir, 'roles/default') )
+    os.makedirs( os.path.join(repos_dir, 'hosts') )
+    
+    def touch( fn, content='' ):            
+        with open( fn, 'w' ) as f:
+            f.write(content)
+    
+    touch( os.path.join(repos_dir, 'roster'), _example_roster )
+    touch( os.path.join(repos_dir, '.hgignore'), _hg_ignore )
+    touch( os.path.join(repos_dir, 'roles/default.py'), _example_doctrine )
+    
+    orig_cwd = os.getcwd()
+    
+    os.chdir( repos_dir )
+    
+    p = subprocess.Popen("hg add", shell=True)
+    os.waitpid(p.pid,0)
+    
+    p = subprocess.Popen("hg commit -m initialization", shell=True)
+    os.waitpid(p.pid,0)
+    
+    out = subprocess.Popen('hg summary', shell=True, stdout=subprocess.PIPE).communicate()[0]
+    
+    rev_num = out.split()[1].split(':')[1]
+    
+    os.chdir( orig_cwd )
+    touch( os.path.join(master_dir, 'rev_number'), rev_num )
+    
+    raise DontConnect()
+
+commands['init_master'] = (init_master_desc, init_master_ops, init_master)
+
+#------------------------------------------------------------------------------
+#                                  Main
+#------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------
+# Usage checking
+#
+admin_name      = None
+admin_pass      = None
+master_hostname = None
+master_port     = None
+
+def usage( err_msg = None):
+    import textwrap
+    
+    if err_msg:
+        print 'Error: ' + err_msg
+        print ''
+    
+    keys = commands.keys()
+    keys.sort()
+    print 'Usage: profigure [-u admin_name] [-m master:port] <command> [command args...]'
+    print '  Commands:'
+    tmpl = '    %s - %s'
+    
+    mk = max( len(k) for k in keys ) + 1
+
+    tmp = tmpl % ('x'.ljust(mk), '')
+    max_len = 80 - len(tmp)
+    cont_indent = '\n' + ' '*len(tmp)
+    
+    for k in keys:
+        desc, ops, func = commands[ k ]
+        
+        d = cont_indent.join( textwrap.wrap(desc, max_len) )
+        
+        print tmpl % (k.ljust(mk), d)
+     
+    print ''
+    print 'Use "profigure <command_name> --help" for command-specific help'
+
+    sys.exit(1)
+
+
+argv = sys.argv[1:]
+
+while len(argv) > 2 and (argv[0] == '-u' or argv[0] == '-m'):
+    if argv[0] == '-u':
+        admin_name = argv[1]
+    else:
+        try:
+            master_hostname, master_port = argv[1].split(':')
+            master_port = int(master_port)
+        except:
+            print 'Format for master server is <hostname>:<port_number>'
+            sys.exit(1)
+        
+    argv = argv[2:]
+    
+if len(argv) < 1 or not argv[0] in commands:
+    usage()
+
+command = argv[0]
+
+desc, parser, func = commands[ command ]
+
+(options, args) = parser.parse_args( argv[1:] )
+
+try:
+    func( None, options, args )
+except UsageError, e:
+    usage( str(e) )
+except DontConnect:
+    # Command modified the local system only and does not need to connect to the 
+    # master daemon
+    sys.exit(0)
+except DependencyError, e:
+    print str(e)
+    sys.exit(1)
+except ArgsError, e:
+    print str(e)
+    sys.exit(1)
+
+    
+#------------------------------------------------------------------------
+# Load password & profigure.conf (if one exists)
+#
+
+dot_dir     = os.path.join( os.path.expanduser('~'), '.profigure' )
+passwd_file = os.path.join(dot_dir, 'passwd')
+conf_file   = os.path.join(dot_dir, 'profigure.conf')
+
+
+if not admin_name:
+    admin_name = getpass.getuser()
+    
+if admin_name == getpass.getuser() and os.path.exists( passwd_file ):
+    if (os.stat( passwd_file ).st_mode & 0777) == 0600:
+        with open( passwd_file ) as t:
+            admin_pass = t.read().strip()
+    else:
+        print 'WARNING: Ignoring insecure profigure password file: %s' % passwd_file
+        print '         File permissions must be exactly 600'
+        
+if not admin_pass:
+    admin_pass = getpass.getpass('Enter password for %s: ' % admin_name)
+    
+if not admin_pass:
+    print 'Aborting due to empty password'
+    sys.exit(1)
+    
+
+if not master_hostname and os.path.exists('roster'):
+    try:
+        r = roster.Roster( 'roster' )
+        r.read()
+        
+        master_hostname = r.master_hostname
+        master_port     = r.master_port
+        
+    except roster.RosterErr, e:
+        print 'Error in roster file: ', str(e)
+        sys.exit(1)
+    
+        
+def load_conf( cfg ):
+    global master_hostname
+    global master_port
+    try:
+        kc = pro_conf.ProfigureConf(cfg)
+        master_hostname = kc.master_hostname
+        master_port     = kc.master_port
+    except pro_conf.ConfigError, e:
+        print 'Error in configuration file: %s' % cfg
+        print '    ', str(e)
+        sys.exit(1)
+
+        
+if not master_hostname:
+    load_conf( conf_file )
+    
+if not master_hostname:
+    load_conf( '/etc/profigure/profigure.conf' )
+    
+if not master_hostname:
+    print 'Unable to determine master address. Priority for determination is:'
+    i=1
+    for x in ['command line', './roster', conf_file, '/etc/profigure/profigure.conf']:
+        print '\t%d:' % i, x
+        i += 1
+    sys.exit(1)
+    
+if not master_port:
+    print 'Port number for the master daemon not specified. Aborting.'
+    sys.exit(1)
+    
+
+#----------------------------------------------------------------------------
+# Connect to master & execute command
+#
+connection = None
+
+m = admin.Admin( master_hostname, master_port, admin_name, admin_pass )
+
+d = m.getConnection()
+
+def connected( con ):
+    global connection
+    connection = con
+    return func( con, options, args )
+        
+def fail( err ):
+    print '%s FAILED: ' % command, err.getErrorMessage()
+        
+def quit(_):
+    connection.disconnect()
+    reactor.callLater(0.1, reactor.stop)
+
+d.addCallback( connected )
+d.addErrback( fail )
+d.addBoth( quit )
+
+
+reactor.run()
+

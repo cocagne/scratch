@@ -1,0 +1,4 @@
+
+
+* Doctrine merging is broken. Rework into depth-first, left to right
+  merger.

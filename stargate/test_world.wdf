@@ -1,0 +1,64 @@
+
+World{ name='test_world', version = '0.0.1' }
+
+Type{ name    = 'Position',
+      type_id = 1,
+      { 'latitude',  'double' },
+      { 'longitude', 'double', default="3.14" },
+      { 'altitude',  'double' } }
+
+Type{ name    = 'Orientation',
+      type_id = 2,
+      { 'roll', 'float' },
+      { 'pitch', 'float' },
+      { 'yaw',   'float' } }
+
+Type{ name    = 'Location',
+      type_id = 3,
+      { 'pos', 'Position'    },
+      { 'ori', 'Orientation' } }
+
+Object{ name    = 'PhysicalEntity',
+        type_id = 4,
+        { 'loc', 'Location' } }
+
+Object{ name       = 'Vehicle',
+        type_id    = 5,
+        superclass = 'PhysicalEntity',
+        { 'max_fuel',     'uint32', units='liters' },
+        { 'empty',        'boolean'},
+        { 'current_fuel', 'uint32', units='liters' },
+        { 'is_moving',    'boolean' } }
+
+Object{ name       = 'Aircraft',
+        type_id    = 6,
+        superclass = 'Vehicle',
+        { 'gear_down', 'boolean' },
+        { 'callsign',  'string'} }
+
+Object{ name       = 'Automobile',
+        type_id    = 7,
+        superclass = 'Vehicle',
+        { 'tire_pressure', 'float', array_size=4, units='N/m^2' } }
+
+Message{ name    = 'VehicleOrder',
+         type_id = 8,        
+         { 'vehicle_id', 
+           'uuid', 
+           description='UUID of the unit this order applies to' } }
+
+Message{ name       = 'MoveTo',
+         type_id    = 9,
+         superclass = 'VehicleOrder',
+         { 'destination', 'Position' } }
+
+
+         
+         
+        
+
+
+
+
+
+      

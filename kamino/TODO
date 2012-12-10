@@ -1,0 +1,6 @@
+
+* Implement Hardlinks on file extraction
+
+* Add scanning filters for /var
+
+* Add patch application filters

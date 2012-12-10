@@ -1,0 +1,149 @@
+.\" Hey, Emacs! This is an -*- nroff -*- source file.
+.\"
+.\" Proccess this file with
+.\" groff -man -Tascii os_env.1
+.\"
+.TH os_env 1 "May 2011" "User Manuals"
+.SH NAME
+os_env \- Enhanced chroot-like utility for running processes under
+alternative OS environments
+.SH SYNOPSIS
+\fBos_env\fR <\fB\fIenvironment_name[:profile]\fR>
+[\fB\fIcommand_name [command_args...]\fB\fR]
+.SH DESCRIPTION
+The
+.B os_env
+utility allows processes to be run under a hybrid of the host's
+file-system and that of an 'embedded' Linux distribution's file
+system. This is useful for running programs compiled and packaged for
+a different Linux distribution on the host system. Use of this command
+requires one or more 'embedded' linux environments where each
+environment is nothing more than a minimal or complete copy of the
+root file system of an installed Linux system. Creating an embedded
+environment can be as simple as extracting a TAR backup of the target
+system into the host's file system (or NFS location) followed by
+adding an
+.B os_env.conf(5)
+file to specify which directories should be overmounted by processes
+using the environment.
+
+.PP
+.I Chroot environments
+can be used to achieve similar results, however, 
+.B os_env
+provides a more flexible solution as it overrides only select pieces
+of the host's filesystem rather than creating an entirely new
+one. This provides processes running in
+.B os_env
+environments access to all parts of the host filesystem except those
+explicitly overriden by the user (such as /bin and /lib). Also,
+.B os_env
+is implemented in terms of per-process namespaces and, as such,
+it will not clutter the global mount table with dozens of
+bind-mounts (as is usually required for 
+.I chroot
+).
+
+.SH EMBEDDED ENVIRONMENTS
+Each OS environment must contain, at a minimum, the desired commands
+and corresponding shared library dependencies 
+in order for processes running under
+.B os_env
+to function. However, the environment may also consist of a complete
+system installation (easily obtained from extracting a full system
+backup). The advantage to this approach is that it permits the use of
+the embedded environment's package management utitlities for
+maintaining and upgrading the embedded environment over time.
+.PP
+The only additional requirement of the embedded environments is that
+their root directory must contain a properly configured 
+.I os_env.conf
+file. This file specifies which directories and environment variables
+to override in 
+.B os_env 
+processes. Multiple configuration profiles may be specified
+in this file as not all processes will require the same settings. For
+a full description of this file, refer to 
+.B os_env.conf(5)
+.PP
+Although not required, the 
+.B os_env_update(1)
+command is useful for synchronizing a few files contained within
+the host OS with that of the embedded environments. This command will
+add all of the users and groups defined on the host to the /etc/passwd
+and /etc/group files of the embedded environments. Also, it will copy
+the contents of the host's /etc/resolv.conf to the embedded environment.
+If these changes are not made, processes in the embedded environments will
+not be able to correlate usernames/groups with uid/gids and will be unable
+to preform DNS name resolution.
+
+.SH USAGE
+
+At a minimum, the 
+.B os_env
+command must be provided with the name of an environment to run
+under. If no command argument is provided, the
+.B os_env 
+command will execute a bash login shell. Otherwise,
+the specified command with it's arguments will be invoked.
+.PP
+Profiles are specified by appending a ':profile_name' to the name of
+the environment. If no profile name is specified on the command line,
+it will default to 'default'. The requested profile must be contained
+within the environment's os_env.conf file.
+
+All environment variables in the subsequent process will be inherited,
+as normal, from the parent process. Barring, of course, those variables
+(if any) that are modified by the profile being used. In addition, the
+.B os_env
+command will define the following environment variables:
+   OS_ENV         - Name of the environment being used
+   OS_ENV_PROFILE - Name of the profile being used
+   OS_ENV_ROOT    - Absolute path of the root directory of the embedded OS
+
+These variables may be used by profiles in 
+.B os_env.conf(5)
+
+.SH OS ENVIRONMENT SEARCH ORDER
+The command: "os_env environment_name" will search for a directory called 
+.I environment_name 
+in the following order:
+   1. Directly as an abolute or relative path
+   2. Each entry in 
+.B $OS_ENV_PATH
+   3. Each entry in 
+.B /etc/os_env.path
+
+The first path encountered with a matching directory name that contains
+a
+.I os_env.conf
+file will be used.
+
+.SH TIPS
+The mount point overrides may be checked by running a shell in the
+.B os_env
+environment and issuing the following command: "cat /proc/self/mounts"
+This will display the per-process mount table containing all of the
+directories inherited from the global file system and all of the
+.B os_env
+specific overmounts.
+
+Overriding the default prompt for shells running in 
+.B os_env
+environments is an easy way to avoid confusion. As an example, the
+following may be added to ~/.profile to prefix the prompt with the
+name of the environment and profile:
+
+.nf
+if [ -n "$OS_ENV" ]; then
+  if [ ! "$OS_ENV_PROFILE" = "default" ]; then
+      export PS1="($OS_ENV:$OS_ENV_PROFILE) > "
+  else
+      export PS1="($OS_ENV) > "
+  fi
+fi
+.fi
+
+.SH "SEE ALSO"
+.BR os_env.conf(5)
+.BR os_env_update(1)

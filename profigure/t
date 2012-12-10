@@ -1,0 +1,11 @@
+#!/usr/bin/python
+
+import doctrine
+
+print globals()
+print '------------'
+print locals()
+
+t = __import__('t2', globals(), locals())
+
+print t.doc

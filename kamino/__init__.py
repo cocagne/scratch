@@ -1,0 +1,3 @@
+
+class KaminoException (Exception):
+    pass

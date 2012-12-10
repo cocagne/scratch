@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+
+MIN_UID = 1000
+MAX_UID = 60000
+
+MIN_GID = 1000
+MAX_GID = 60000
+
+import os
+import os.path
+import subprocess
+import sys
+
+
+resolv_conf = None
+host_users  = None
+host_groups = None
+updated_one = False
+
+def getent( fn ):
+    return subprocess.Popen(['getent', fn], stdout=subprocess.PIPE).communicate()[0]
+
+def read_file( fn ):
+    with open( fn ) as f:
+        return f.read()
+
+def backup_file( fn ):
+    bfile = fn + '.os_env.backup'
+    if not os.path.exists( bfile ):
+        with open(bfile, 'w') as w:
+            with open(fn, 'r') as r:
+                w.write( r.read() )
+
+def filter_ids( text, min_uid, max_uid, inclusive = True ):
+    l = list()
+    
+    for line in text.split('\n'):
+        if line.strip().startswith('#'):
+            continue
+        try:
+            t = line.split(':')
+            uid = int(t[2])
+            if inclusive and (uid >= MIN_UID and uid <= MAX_UID):
+                l.append( line )
+            elif not inclusive and (uid < MIN_UID or uid > MAX_UID):
+                l.append( line )
+        except:
+            pass # invalid line, ignore it
+        
+    return l
+
+
+def get_host_values():
+    global resolv_conf
+    global host_users
+    global host_groups
+
+    if resolv_conf is not None:
+        return
+    
+    resolv_conf = read_file( '/etc/resolv.conf' )
+    host_users  = filter_ids( getent('passwd'), MIN_UID, MAX_UID )
+    host_groups = filter_ids( getent('group'), MIN_GID, MAX_GID )
+
+    
+
+def update_env( env_root ):
+    global updated_one
+
+    get_host_values()
+    
+    env_etc = os.path.join(env_root, 'etc')
+    
+    def merge(fn, host_entries, min_id, max_id):
+        efn = os.path.join(env_etc, fn)
+
+        tfile = efn + '.tmp'
+        bfile = efn + '.os_env.backup'
+
+        backup_file( efn )
+        
+        with open( tfile, 'w' ) as f:
+            for line in filter_ids( read_file(efn), min_id, max_id, False ):
+                f.write( line + '\n' )
+            for line in host_entries:
+                f.write( line + '\n' )
+
+        os.rename( tfile, efn )
+        os.chmod( efn, 0644 )
+
+    merge( 'passwd', host_users,  MIN_UID, MAX_UID )
+    merge( 'group',  host_groups, MIN_GID, MAX_GID )
+
+    erc = os.path.join(env_etc, 'resolv.conf')
+    
+    backup_file( erc )
+    
+    with open(erc, 'w') as f:
+        f.write( resolv_conf )
+        
+    os.chmod(erc, 0644)
+
+    print 'Updated: ', env_root
+    updated_one = True
+
+
+    
+def usage():
+    print >> sys.stderr, 'Usage: update_etc [--pid=min:max --gid=min:max] <os_root_dir | directory containing multiple os_root dirs>'
+    sys.exit(1)
+
+args = sys.argv[:]
+
+def extract_mm( prefix, dmin, dmax ):
+    for i in range(0,len(args)):
+        if args[i].startswith(prefix):
+            try:
+                dmin, dmax = (int(x) for x in args[i][len(prefix):].split(':'))
+                assert dmax > dmin
+            except:
+                print >> sys.stderr, "Invalid argument: ", args[i]
+                raise
+                sys.exit(1)
+            del args[i]
+            break
+    return dmin, dmax
+            
+
+MIN_UID, MAX_UID = extract_mm( '--pid=', MIN_UID, MAX_UID )
+MIN_GID, MAX_GID = extract_mm( '--gid=', MIN_GID, MAX_GID )
+
+if len(args) != 2:
+    usage()
+
+d = args[1]
+
+if not os.path.isdir( d ):
+    usage()
+
+if os.path.exists( os.path.join(d, 'os_env.conf') ):
+    update_env( d )
+else:
+    for fn in os.listdir( d ):
+        t = os.path.join( d, fn )
+        if os.path.exists( os.path.join(t, 'os_env.conf') ):
+            update_env( t )
+        
+if not updated_one:
+    print >> sys.stderr, "No os_env root directories found!"
+    sys.exit(1)

@@ -1,0 +1,62 @@
+.\" Hey, Emacs! This is an -*- nroff -*- source file.
+.\"
+.\" Proccess this file with
+.\" groff -man -Tascii os_env_update.1
+.\"
+.TH os_env_update 1 "May 2011" "User Manuals"
+.SH NAME
+os_env_update \- Updates the /etc/passwd, /etc/group, and /etc/resolv.conf files
+of os_env embeddeded environments
+.SH SYNOPSIS
+\fBos_env_update\fR [\fB\fI--pid=min_uid:max_uid --gid=min_gid:max_gid\fR]
+<\fB\fIos_root_dir | directory_containing_multiple_os_root_dirs\fB\fR>
+.SH DESCRIPTION
+The
+.B os_env_update
+utility updates the /etc/passwd, /etc/group, and /etc/resolv.conf files with
+the relevant information from the host operating system. Although the use of
+this utility is not required, failing to synchronize the content of these
+files with those of the host os will prevent processes running in an
+.B os_env
+environment from resolving uid and gid values with their respective user
+and group names. Also, DNS queries will fail without a properly configured
+resolv.conf file. This applies only to 
+.B os_env
+environments that override the 
+.I /etc
+directory.
+.PP
+The directory passed to the
+.B os_env_update
+command may either be the root directory of an embedded operating system
+(which must contain an 
+.B os_env.conf(5) 
+file). Or it may be the parent directory of multiple embedded operating systems.
+In the latter case, 
+.B os_env_update
+will update all of the embedded systems.
+.PP
+The first time this command is used on an embedded environment,
+.B os_env_update
+will create a backup of each original file named 
+<file_name>.os_env.backup
+.PP
+.TP
+--pid
+Defines the minimum and maximum user ids on the host system to include in
+the embedded operating system's /etc/passwd file. These values will overwrite
+any values in the embedded system's /etc/passwd file that fall within the same
+range. The value of this argument must be in the format "min_uid:max_uid". If
+not provided, the default of "1000:60000" is used.
+.TP
+--gid
+Defines the minimum and maximum group ids on the host system to include in
+the embedded operating system's /etc/group file. These values will overwrite
+any values in the embedded system's /etc/group file that fall within the same
+range. The value of this argument must be in the format "min_gid:max_gid". If
+not provided, the default of "1000:60000" is used.
+
+.SH "SEE ALSO"
+.BR os_env.conf(5)
+.BR os_env(1)
+

@@ -1,0 +1,180 @@
+#! /bin/sh
+# Author: Tom Cocagne <thomas.cocagne@navy.mil>
+#
+# /etc/init.d/profigure-client
+#
+#
+### BEGIN INIT INFO
+# Provides:       profigure-client
+# Required-Start: $network
+# Required-Stop:  $network
+# Default-Start:  3 5
+# Default-Stop:   0 1 2 6
+# Description:    Profigure Client Daemon
+### END INIT INFO
+
+PATH=$PATH:/bin:/sbin:/usr/sbin
+
+PIDFILE="/var/run/profigure-client.pid"
+
+if [ -f /etc/redhat-release ]; then
+    system=redhat
+elif [ -f /etc/SuSE-release ]; then
+    system=suse
+elif [ -f /etc/gentoo-release ]; then
+    system=gentoo
+else
+    system=other
+fi
+
+if [ "$system" = "redhat" ]; then
+    . /etc/init.d/functions
+    fail_msg() {
+        echo_failure
+        echo
+    }
+
+    succ_msg() {
+        echo_success
+        echo
+    }
+
+    begin() {
+        echo -n "$1"
+    }
+fi
+
+if [ "$system" = "suse" ]; then
+    . /etc/rc.status
+    fail_msg() {
+        rc_failed 1
+        rc_status -v
+    }
+
+    succ_msg() {
+        rc_reset
+        rc_status -v
+    }
+
+    begin() {
+        echo -n "$1"
+    }
+fi
+
+if [ "$system" = "gentoo" ]; then
+    . /sbin/functions.sh
+    fail_msg() {
+        eend 1
+    }
+
+    succ_msg() {
+        eend $?
+    }
+
+    begin() {
+        ebegin $1
+    }
+
+    if [ "`which $0`" = "/sbin/rc" ]; then
+        shift
+    fi
+fi
+
+if [ "$system" = "other" ]; then
+    fail_msg() {
+        echo " ...failed."
+    }
+
+    succ_msg() {
+        echo " ...done."
+    }
+
+    begin() {
+        echo -n $1
+    }
+fi
+
+
+fail() {
+    if [ "$system" = "gentoo" ]; then
+        eerror $1
+        exit 1
+    fi
+    fail_msg
+    echo "($1)"
+    exit 1
+}
+
+running() {
+    if [ -f $PIDFILE ]; then
+        kill -0 $(cat $PIDFILE) &> /dev/null
+    else
+        return 1
+    fi
+}
+
+start() {
+    
+    if [ ! -f /etc/profigure/profigure.conf || ! -f /etc/profigure/passwd ]
+    then
+        begin "Starting Profigure Client Daemon: NOT INITIALIZED"
+        fail_msg
+        return 1
+    fi
+    
+    begin "Starting Profigure Client Daemon "
+
+    running || {
+    
+        twistd -o --prefix=profigure --pidfile=$PIDFILE /usr/share/profigure/host.tac
+        
+    }
+    
+    succ_msg
+    return 0
+}
+
+stop() {
+    begin "Stopping Profigure Client Daemon ";
+    running && {
+        if [ -f $PIDFILE ]
+        then
+            kill -TERM $(cat $PIDFILE) &> /dev/null
+            rm -f $PIDFILE
+        fi
+    }
+    return 0
+}
+
+restart() {
+    stop && start
+    return 0
+}
+
+dmnstatus() {
+    if running; then
+        echo "Profigure Client Daemon is currently running."
+    else
+        echo "Profigure Client Daemon is not currently running."
+    fi
+}
+
+case "$1" in
+start)
+    start
+    ;;
+stop)
+    stop
+    ;;
+restart)
+    restart
+    ;;
+status)
+    dmnstatus
+    ;;
+*)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+esac
+
+exit

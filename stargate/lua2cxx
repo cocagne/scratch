@@ -1,0 +1,128 @@
+#!/usr/bin/env lua
+
+local usage = [[
+Usage: lua2cxx namespace file1.lua [file2.lua ...]
+
+This program generates a C++ file containing the bytecode for the
+specified lua modules. All content is placed within the specified
+namespace and is made available to the lua interpreter via a call
+to "namespace::lua2cxx_init(L)"
+]]
+
+
+if not arg or #arg < 2 then
+    io.stderr:write(usage)
+    return
+end
+
+local namespace = arg[1]
+local files     = {unpack(arg,2)}
+
+local byte_table    = {}
+local split_pattern = ("."):rep(80)
+
+for i=0,255 do
+    byte_table[ string.char(i) ] = ("%3d,"):format(i)
+end
+
+local function compile( filename )
+  return string.dump( assert(loadfile(filename)) )
+end
+
+local function tobytestring( compiled_code )
+  return compiled_code:gsub(".", byte_table)
+end
+
+local function splitlines( bytestring )
+  local txt, nmatches = bytestring:gsub( split_pattern, '%0\n' )
+  return txt
+end
+
+-- modname, modname, modname, filename
+local load_tmpl = [[
+int load_%s( lua_State *L )
+{
+  if (luaL_loadbuffer( L, (const char *) %s_bytes, sizeof(%s_bytes), "%s" ))
+     lua_error(L);
+  lua_call(L,0,1);   
+  return 1;
+}
+]]
+
+
+local init_header = [[
+void lua2cxx_init( lua_State * L )
+{
+   lua_getglobal(L,"package");
+   if (!lua_istable(L,-1)) {
+     cerr << "** INVALID PACKAGE MODULE **" << endl;
+     return;
+   }
+   lua_pushstring(L,"preload");
+   lua_gettable(L,-2);
+   if (!lua_istable(L,-1)) {
+     cerr << "** INVALID PRELOAD MODULE **" << endl;
+     return;
+   }
+     
+]]
+
+local init_footer = [[
+
+   lua_pop(L,2);
+}
+]]
+
+
+local file_header = [[
+#include <iostream>
+
+extern "C" {
+    #include <lua.h>
+    #include <lauxlib.h>
+    #include <lualib.h> 
+}
+
+using std::cerr;
+using std::endl;
+
+]]
+
+local function get_pkgname( filename )
+   local last_slash = 1
+   for i = 1,#filename do
+       local c = filename:sub(i,i) 
+       if c == '/' or c == [[\]] then
+           last_slash = i + 1
+       end
+   end
+   
+   return filename:sub(last_slash, -5)
+end
+
+
+print( file_header )
+print( "namespace " .. namespace .. " {\n" )
+
+local pkg_name
+for i,fn in ipairs(files) do
+    pkg_name = get_pkgname(fn)
+    print('unsigned char ' .. pkg_name .. '_bytes[] = {')
+    print( splitlines( tobytestring( compile( fn ) ) ) )
+    print('}; // end ' .. fn .. '\n')
+    print( string.format(load_tmpl, pkg_name, pkg_name, pkg_name, fn) )
+    print( '\n' )
+end
+
+print('\n')
+print(init_header)
+
+for i,fn in ipairs(files) do
+    pkg_name = get_pkgname(fn)
+    print(string.format('   lua_pushstring(L, "%s");', pkg_name))
+    print(string.format('   lua_pushcfunction(L, load_%s);', pkg_name))
+    print('   lua_settable(L,-3);\n')
+end
+print(init_footer)
+
+print( "\n} // end namespace " .. namespace .. "\n\n" )

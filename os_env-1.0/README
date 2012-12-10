@@ -1,0 +1,147 @@
+
+** OVERVIEW **
+
+This utility is designed to allow applications and development
+environments compiled for one Linux distribution to be easily and
+transparently used on a different distribution.
+
+Occasionally, vendor supplied software will consist of either
+binary-only packages or source code that will compile only under a
+specific Linux distribution. Rather than installing a separate machine
+on the network that matches the vendor-required distribution and
+version (and eating the costs associated with securing and supporting
+a one-off machine), the os_env utility can, instead, be used to allow
+specific processes to execute in the context of that environment
+without requiring a separate physical or virutal machine.
+
+This is achieved by using the Linux kernel's support for per-process
+namespaces to run processes in which various directories of the host
+operating system are replaced by those of an "embedded" operating system.
+An "embedded" operating system in this sense is simply directory tree 
+containing a dump  of the root file system of a machine installed
+with the target distribution. 
+
+The chroot utility has long been used to achieve a similar
+effect. However os_env offers a much more elegant solution in that it
+requires far less administrative overhead, avoids cluttering the
+global mount space with multiple bind-mounts, and allows processes
+running in the modified environment to selectively override only the
+required directories.
+
+** USAGE **
+
+In order to run a process in the context of a certain Linux
+distribution, the file system for a fully installed and configured
+system must first be obtained. This can be easily done by installing
+the target distribution on a temporary VM and then copying the root
+file system of the VM to a directory on the host.
+
+Once the file system is obtained, a os_env.conf file must be created
+in the root directory of the embedded distribution. This file lists
+which directories on the host file system should be replaced with
+those from the embedded distribution and, optionally, may override
+environment variables to better suit the modified environment (for
+full details, see the os_env.conf(5) man page). 
+
+The exact list of host directories that will need to be replaced by
+those contained in the embedded distribution will vary. In general
+though most processes will require at least the /usr and /lib
+directories from the embedded system.
+
+Refer to the following man pages for a detailed documentation:
+   os_env (1)
+   os_env.conf (5)
+   os_env_update (1)
+
+
+** Example Use ** 
+
+Assuming a host OS of 64-bit OpenSuse Desktop 11.3, the following
+process can be used to launch the xeyes command from an embedded
+32-bit Ubuntu 10.04 LTS distribution:
+
+1. Set up the default os_env configuration:
+    * mkdir /var/os_env_distributions
+    * echo "/var/os_env_distributions" > /etc/os_env.path
+
+2. Use Virtual Box to install Ubuntu 10.04
+
+3. Copy the entire filesystem to the host machine:
+    * qemu-nbd --partition=1 -r -c /dev/nbd0 
+         ~/.VirtualBox/HardDisks/ubuntu_10.04.vdi
+    * sudo modprobe nbd
+    * sudo mount /dev/nbd0 /mnt
+    * cd /mnt
+    * mkdir /var/os_env_distributions/ubuntu_10.04
+    * rsync -ax * /var/os_env_distributions/ubuntu_10.04
+
+4. Place the following content in: ubuntu_10.04/os_env.conf
+   { 
+     "default" : { 
+       "mounts" : ["bin", "usr", "lib", "sbin"]
+     },
+
+     "full" : {
+       "inherit" : "default",
+       "mounts" : ["sbin", "etc", "var", "boot"]
+     }
+   }
+
+5. Run xeyes from the ubuntu environment:
+   * os_env ubuntu_10.04 xeyes
+
+
+As a further example, the following can be used to launch Ubuntu's
+Syanptic Package Manager from within the embedded environment. This
+allows the embedded distribution to be maintained as if it were a
+normal machine for adding, removing, and updating packages:
+
+   * Use "xhost +local:" to disable X-windows security for Unix
+     socket connections. Insert obligatory security warning here.
+
+   * sudo DISPLAY=:0 os_env ubuntu_10.04:full /usr/sbin/synaptic
+
+
+** INSTALLATION **
+
+umask 022
+tar zxf os_env_VERSION.tgz
+cd os_env-VERSION
+cmake . -DCMAKE_INSTALL_PREFIX=/
+make
+sudo make install
+
+
+** Tips **
+
+---
+The os_env_update command can be used to synchronize the embedded
+operating system's /etc/passwd, /etc/group, and /etc/resolv.conf files.
+When using the embedded system's /etc directory, running this command
+regularly via a cron job will help keep the embedded environment operating
+smoothly (DNS lookups will work and uid/gid/name mappings will occur as
+expected)
+
+---
+To avoid confusion as to which environment a terminal window is running,
+the following commands may be placed in ~/.profile to prefix the prompt
+with the current operating system environment name
+
+if [ -n "$OS_ENV" ]; then
+  if [ ! "$OS_ENV_PROFILE" = "default" ]; then
+      export PS1="\[\e[1;31m\]($OS_ENV:$OS_ENV_PROFILE)\[\e[0m\] \h:\w> "
+  else
+      export PS1="\[\e[1;31m\]($OS_ENV)\[\e[0m\] \h:\w> "
+  fi
+fi
+
+---
+Also, the per-process namespace can be easily displayed by catting the
+/proc/self/mounts file. Contiuing from the example above and assuming
+that ~/.profile contains the prompt prefix:
+   * os_env ubuntu_10.04
+   * (ubuntu_10.04) > cat /proc/self/mounts
+
+
+
+

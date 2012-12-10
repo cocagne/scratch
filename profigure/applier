@@ -1,0 +1,26 @@
+#!/usr/bin/python
+
+import sys
+import os.path
+
+this_file = os.path.abspath( __file__ )
+pd        = os.path.dirname
+
+sys.path.append( pd(pd(this_file)) )
+
+from profigure.applier import Applier
+
+if len(sys.argv) != 6:
+    print 'Usage: applier <hostname> <dist_zip> <results_tgz> <root_dir> <test|error_log_filename>'
+    sys.exit(1)
+    
+cmd_name, hostname, dist_zip, results_tar, root_dir, kind_or_log = sys.argv
+
+a = Applier( hostname, root_dir )
+
+if kind_or_log == 'test':
+    a.test( dist_zip, results_tar )
+else:
+    with open(results_tar, 'w') as f:
+        pass
+    a.apply_config( dist_zip, kind_or_log )

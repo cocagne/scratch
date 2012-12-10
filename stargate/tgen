@@ -1,0 +1,254 @@
+#!/usr/bin/env lua
+
+
+local worlds = require "abidos_world_def"
+
+
+
+--print '--------------------------------------------------'
+--w:print_self()
+
+file_header = [[
+#include "world_interface.hpp"
+namespace %s
+{
+    using namespace sg;
+
+    class GenBase
+    {
+      protected:
+        GenBase( const PInstance & _p ) : p(_p) {}
+        PInstance p;
+      public:
+        const PInstance & _gp() const { return p; }  
+    };
+
+]]
+
+file_footer = [[
+} // end namespace %s
+
+]]
+
+type_header = [[
+    
+    class %s : public %s
+    {
+      public:
+        enum { ID = %d };
+      
+        %s( const PInstance & _p ) : %s(_p) {}
+]]
+
+type_footer = [[
+    };
+]]
+
+-- cname, cname, typeid, cname, cname, cname, cname
+object_def = [[
+
+    class %sObject
+    {
+       PObject o;
+       friend class sg::WorldInterface;     
+       %sObject( PObject _o ) : o(_o) {}
+       
+     public:
+       enum { ID = %d };
+
+       %sObject( const %sObject & x ) : o(x.o) {}
+       
+       const UUID *  getUUID() const { return o->getUUID(); }
+       %s getInstance() { return %s( o->getInstance() ); }
+       const %s getInstance() const { return %s( o->getInstance() ); }
+    };
+]]
+
+
+-- cname, cname, typeid, cname, cname
+message_def = [[
+
+    class %sMessage
+    {
+       PObject o;
+       friend class sg::World;     
+       %sMessage( PObject _o ) : o(_o) {}
+       
+     public:
+       enum { ID = %d };
+       
+       const UUID * getUUID() const { return o->getUUID(); }
+       %s getInstance() { return %s( o->getInstance() ); }
+       const %s getInstance() const { return %s( o->getInstance() ); }
+    };
+]]
+
+
+local trivial_cpp_types = { boolean = 'bool',
+                            int32   = 'int32_t',
+                            uint32  = 'uint32_t',
+                            int64   = 'int64_t',
+                            uint64  = 'uint64_t',
+                            float   = 'float',
+                            double  = 'double' }
+
+local interface_types = {  boolean = 'Boolean',
+                           int32   = 'Int32',
+                           uint32  = 'UInt32',
+                           int64   = 'Int64',
+                           uint64  = 'UInt64',
+                           float   = 'Float',
+                           double  = 'Double',
+                           string  = 'ByteString',
+                           uuid    = 'UUID' }
+
+
+                            
+local ref_types = { string  = 'const ByteString *',
+                    uuid    = 'const UUID *' }
+
+
+function is_trivial_type( dtype ) return trivial_cpp_types[ dtype ] ~= nil end
+function is_ref_type( dtype ) return ref_types[ dtype ] ~= nil end                        
+
+function gen_trivial_attr( indent, name, dtype, deriv, attrid )
+    local ctype = trivial_cpp_types[ dtype ]
+    local itype = interface_types[ dtype ]
+    local lines = {}
+    local function add( fmt, ... )
+        table.insert(lines, indent .. string.format(fmt, unpack(arg)))
+    end
+    
+    add('%s %s() const { return p->get%s( AttributeID(%d,%d) ); }', ctype, name, itype, deriv, attrid)
+    
+    add('void %s( %s v ) { p->set%s( AttributeID(%d,%d), v ); }', name, ctype, itype, deriv, attrid)
+
+--    add('void %s_callback( const UpdateCallback & cb ) { p->setAttributeUpdateCallback( AttributeID(%d,%d), cb ); }',
+--        name, deriv, attrid)
+    
+    return table.concat(lines,'\n')
+end
+
+function gen_string_attr( indent, name, deriv, attrid )
+    local lines = {}
+    local function add( fmt, ... )
+        table.insert(lines, indent .. string.format(fmt, unpack(arg)))
+    end
+    add('const ByteString * %s() const { return p->getByteString( AttributeID(%d,%d) ); }', name, deriv, attrid)
+    
+    add('void %s( const ByteString * v ) { p->setByteString( AttributeID(%d,%d), v ); }', name, deriv, attrid)
+    add('void %s( const char * v ) { p->setByteString( AttributeID(%d,%d), v ); }', name, deriv, attrid)
+    add('void %s( const std::string & v ) { p->setByteString( AttributeID(%d,%d), v ); }', name, deriv, attrid)
+    add('void %s( const uint8_t * v, std::size_t nbytes ) { p->setByteString( AttributeID(%d,%d), v, nbytes ); }', name, deriv, attrid)
+
+--    add('void %s_callback( const UpdateCallback & cb ) { p->setAttributeUpdateCallback( AttributeID(%d,%d), cb ); }',
+--        name, deriv, attrid)
+    
+    return table.concat(lines,'\n')
+end
+
+
+function gen_uuid_attr( indent, name, deriv, attrid )
+    local lines = {}
+    local function add( fmt, ... ) 
+        table.insert(lines, indent .. string.format(fmt, unpack(arg)))
+    end
+    add('const UUID * %s() const { return p->getUUID( AttributeID(%d,%d) ); }', name, deriv, attrid)
+    
+    add('void %s( const UUID * v ) { p->setUUID( AttributeID(%d,%d), v ); }', name, deriv, attrid)
+
+--    add('void %s_callback( const UpdateCallback & cb ) { p->setAttributeUpdateCallback( AttributeID(%d,%d), cb ); }',
+--        name, deriv, attrid)
+    
+    return table.concat(lines,'\n')
+end
+
+
+
+function gen_instance_attr( indent, name, dtype, deriv, attrid )
+    local lines = {}
+    local function add( fmt, ... )
+        table.insert(lines, indent .. string.format(fmt, unpack(arg)))
+    end
+    
+    add('%s %s() const { return %s(p->getInstance( AttributeID(%d,%d) )); }', dtype, name, dtype, deriv, attrid)
+    
+    --add('void %s( const %s & v ) { p->setInstance( AttributeID(%d,%d), v._gp() ); }', name, dtype, deriv, attrid)
+    
+    --add('void %s_callback( const %sUpdateCallback & cb ) {', name, dtype)
+    --add('    %s::setUpdateCallback(p->getInstance(AttributeID(%d,%d)), cb);', dtype, deriv, attrid)
+    --add('}')
+    
+    return table.concat(lines,'\n')
+end
+
+
+
+function gen_array_attr( indent, name, dtype, deriv, attrid, array_len )
+    local lines = {}
+    local function add( fmt, ... )
+        table.insert(lines, indent .. string.format(fmt, unpack(arg)))
+    end
+    
+    add('ArrayWrapper<%s> %s() const { return ArrayWrapper<%s>(p->getInstance(AttributeID(%d,%d)),%d); }', dtype, name, dtype, deriv, attrid, array_len)
+
+    --add('void %s_callback( const UpdateCallback & cb ) { p->getInstance( AttributeID(%d,%d) )->setUpdateCallback( cb ); }',
+    --    name, deriv, attrid)
+    
+    return table.concat(lines,'\n')
+end
+
+
+function gen_attr( indent, a, deriv )
+    local id_num = a.id - 1
+    if a.array_size ~= nil then
+        return gen_array_attr( indent, a.name, a.dtype, deriv, id_num, a.array_size )
+    else
+        if trivial_cpp_types[ a.dtype ] ~= nil then
+            return gen_trivial_attr( indent, a.name, a.dtype, deriv, id_num )
+        elseif a.dtype == 'string' then
+            return gen_string_attr( indent, a.name, deriv, id_num )
+        elseif a.dtype == 'uuid' then
+            return gen_uuid_attr( indent, a.name, deriv, id_num )
+        else
+            return gen_instance_attr( indent, a.name, a.dtype, deriv, id_num )
+        end
+    end
+end
+
+function gen_interface( w )
+    local _,t,a,deriv,baseclass
+    local lines = {}
+    local function add( fmt, ... ) 
+        table.insert(lines, string.format(fmt, unpack(arg)))
+    end
+
+    add(file_header, w.name)
+    
+    for _,t in ipairs(w.types) do
+        deriv     = t:get_derivation_level()
+        baseclass = t.superclass or 'GenBase'
+        add( type_header, t.name, baseclass, t.type_id, t.name, baseclass )
+        for _,a in ipairs(t.attributes) do
+            table.insert(lines, gen_attr('        ', a, deriv))
+            table.insert(lines,'\n')
+        end
+        table.remove(lines,#lines)
+        add( type_footer )
+        
+        if t.is_object then
+            add( object_def, t.name, t.name, t.type_id, t.name, t.name, t.name, t.name, t.name, t.name )
+        elseif t.is_message then
+            add( message_def, t.name, t.name, t.type_id, t.name, t.name, t.name, t.name )
+        end
+
+        table.insert(lines, '\n')
+    end
+
+    add(file_footer, w.name)
+
+    return table.concat(lines,'\n')
+end
+
+wd = worlds.load( 'test_world.wdf' )
+print( gen_interface(wd) )

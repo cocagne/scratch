@@ -1,0 +1,137 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import os.path
+
+this_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append( os.path.dirname(this_dir) )
+
+from ZODB import FileStorage, DB
+
+from kamino.body import fs
+from kamino.body import db
+
+from kamino.body.fs import cwrap
+
+from kamino.body    import scanner
+from kamino.body    import db
+from kamino.body.db import updater
+from kamino.body.db import patch_creator
+from kamino.body.db import file_store
+
+from kamino.body import patch_applier
+from kamino.body import patch_file
+
+ignores = 'pipe socket /tmp /dev /home'.split()
+
+
+db_dir = '/tmp/db_test'
+
+if not os.path.isdir(db_dir):
+    os.makedirs(db_dir)
+
+
+db_dir2 = '/tmp/db_test2'
+
+if not os.path.isdir(db_dir2):
+    os.makedirs(db_dir2)
+
+
+
+body_db = db.BodyDB( db_dir )
+
+bdb2 = db.BodyDB( db_dir2 )
+
+
+
+def update( bdb ):
+    db_updater = updater.DBUpdater( bdb )
+    
+    pc = patch_creator.PatchCreator( bdb, db_updater )
+
+    filt = scanner.Filter()
+
+    #filt.add_touch_new_files( 'tfilter' )
+    filt.add_track_dirs_only( 'tfilter' )
+    
+    s = scanner.Scanner( '/tmp/test_dir', bdb, pc, filt )
+    s.scan()
+
+
+def patch(bdb, patch_num, pdir='/tmp/tpatch'):
+    app = patch_applier.Patcher( patch_num, bdb )
+
+    app.apply( pdir )
+    #app.apply( '/tmp/tpatch', False )
+
+
+def export_patch( patch_num, bdb = body_db ):
+    fn = '/tmp/patch_file_%d' % patch_num
+    patch_file.export_patch( fn, patch_num, bdb )
+
+
+def import_patch( patch_num, bdb = bdb2 ):
+    fn = '/tmp/patch_file_%d' % patch_num
+    patch_file.import_patch( fn, bdb )
+
+
+def print_patch( bdb, pid = -1 ):
+    pdb = bdb.patch_db
+    pid = pdb.last_patch_id if pid == -1 else pid
+    print '********************************************************'
+    print '* Patch: ', pid
+    print '*'
+    
+    pdb.patches[ pid ].root.pdbg()
+
+    
+
+update(body_db)
+#import sys
+#sys.exit(1)
+export_patch(1)
+#export_patch(2)
+#sys.exit(1)
+print '*'*80
+import_patch(1)
+#import_patch(2)
+#print '#'*80
+#print '# Original Patch:'
+#print_patch(body_db, 1)
+#print '#'*80
+#print '# Imported Patch:'
+#print_patch(bdb2, 1)
+print '*'*80
+patch(bdb2, 1, '/tmp/ipatch')
+#patch(bdb2, 2, '/tmp/ipatch')
+
+
+
+
+def get_open_files():
+    ignores = '/tmp /dev /home /proc /sys'.split()
+
+
+    import subprocess
+    txt = subprocess.Popen(['lsof',], stdout=subprocess.PIPE).communicate()[0]
+    for line in txt.split('\n'):
+        p = line.split()
+        # [0]    command
+        # [1]    pid
+        # [2]    user
+        # [3]    FD
+        # [4]    Type
+        # [5]    device
+        # [6]    size/off
+        # [7]    node name
+        if len(p) > 4:
+            if ('w' in p[3] or 'u' in p[3]) and not p[3] == 'cwd' and p[-1].startswith('/'):
+                ignore = False
+                for i in ignores:
+                    if p[-1].startswith(i):
+                        ignore = True
+                        break
+
+                if not ignore:
+                    print p[1].ljust(10), p[0], p[3], p[-1]

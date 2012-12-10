@@ -1,0 +1,7 @@
+syntax: re
+
+# Filter: ".#backup.py"
+\.\#
+
+# Filter: *.pyc
+\.pyc$

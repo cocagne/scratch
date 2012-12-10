@@ -1,0 +1,136 @@
+#!/usr/bin/python
+
+from openfec import *
+
+data = '''\
+FFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E08\
+8A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B\
+302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9\
+A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE6\
+49286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8\
+FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D\
+670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C\
+180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF695581718\
+3995497CEA956AE515D2261898FA051015728E5A8AAAC42DAD33170D\
+04507A33A85521ABDF1CBA64ECFB850458DBEF0A8AEA71575D060C7D\
+B3970F85A6E1E4C7ABF5AE8CDB0933D71E8C94E04A25619DCEE3D226\
+1AD2EE6BF12FFA06D98A0864D87602733EC86A64521F2B18177B200C\
+BBE117577A615D6C770988C0BAD946E208E24FA074E5AB3143DB5BFC\
+E0FD108E4B82D120A92108011A723C12A787E6D788719A10BDBA5B26\
+99C327186AF4E23C1A946834B6150BDA2583E9CA2AD44CE8DBBBC2DB\
+04DE8EF92E8EFC141FBECAA6287C59474E6BC05D99B2964FA090C3A2\
+233BA186515BE7ED1F612970CEE2D7AFB81BDD762170481CD0069127\
+D5B05AA993B4EA988D8FDDC186FFB7DC90A6C08F4DF435C934063199\
+FFFFFFFFFFFFFFFF'''
+
+d1 = data[:256]
+d2 = data[256:512]
+d3 = data[512:768]
+d4 = data[768:]
+
+
+session = session_ptr()
+
+r = of_create_codec_instance( byref(session), OF_CODEC_REED_SOLOMON_GF_2_8_STABLE, OF_ENCODER, 1 )
+
+print 'Create result: ', r, session.contents
+
+
+p = of_parameters()
+
+p.nb_source_symbols = 4
+p.nb_repair_symbols = 2
+p.encoding_symbol_length = 256
+
+of_set_fec_parameters( session, byref(p) )
+
+
+ARR = c_void_p * 6
+tbl = ARR()
+
+print tbl
+print type(tbl[0])
+
+e1 = create_string_buffer(256)
+e2 = create_string_buffer(256)
+
+
+
+tbl[0] = cast( c_char_p(d1), c_void_p )
+tbl[1] = cast( c_char_p(d2), c_void_p )
+tbl[2] = cast( c_char_p(d3), c_void_p )
+tbl[3] = cast( c_char_p(d4), c_void_p )
+tbl[4] = cast( e1, c_void_p )
+tbl[5] = cast( e2, c_void_p )
+
+
+of_build_repair_symbol( session, tbl, 4 )
+of_build_repair_symbol( session, tbl, 5 )
+
+
+
+
+of_release_codec_instance( session )
+
+#------------------------------------------------------------
+
+session = session_ptr()
+
+r = of_create_codec_instance( byref(session), OF_CODEC_REED_SOLOMON_GF_2_8_STABLE, OF_DECODER, 1 )
+
+of_set_fec_parameters( session, byref(p) )
+
+
+
+def src_cb( ctx, size, esi ):
+	print 'Source cb: ', repr(ctx), repr(size), repr(esi)
+	return 0
+	
+def rep_cb( ctx, size, esi ):
+	print 'Rep cb: ', repr(ctx), repr(size), repr(esi)
+	return None
+
+
+c_src_cb = DECODE_CALLBACK( src_cb )
+
+#r = of_set_callback_functions( session, c_src_cb, c_void_p(0), c_void_p(0) )
+
+print 'Callback set result: ', r
+
+
+
+
+if 0:
+	ds = of_decode_with_new_symbol
+
+	ds(session, cast(c_char_p(d1), c_void_p), 0)
+	ds(session, cast(c_char_p(d2), c_void_p), 1)
+	ds(session, cast(c_char_p(d3), c_void_p), 2)
+	#ds(session, cast(c_char_p(d4), c_void_p), 3)
+	ds(session, cast(e1, c_void_p), 4)
+	ds(session, cast(e2, c_void_p), 5)
+else:
+	tbl[3] = None#c_void_p() # 'erase'
+	
+	r = of_set_available_symbols( session, tbl )
+
+	print 'set symbol result: ', r
+
+
+print '*********** finalizing **********'
+r = of_finish_decoding( session )
+
+print 'decode result: ', r
+
+tbl2 = ARR()
+of_get_source_symbols_tab( session, tbl2 )
+
+x = create_string_buffer( 256 )
+memmove(x,tbl2[3],256)
+print 'New 3: ', x.value
+
+print 'Dat3: ', d4
+#print 'Tbl3: ', repr(newb.raw)
+
+
+of_release_codec_instance( session )
