@@ -1,0 +1,111 @@
+#!/usr/bin/python
+import time
+import random
+import os.path
+import M2Crypto
+
+from M2Crypto import X509, EVP, RSA, Rand, ASN1, m2, util, BIO
+
+def load_cert(name):
+    with open( os.path.join('certs', name) ) as f:
+        return M2Crypto.X509.load_cert_string(f.read())
+
+def cat_file(name):
+    with open(name) as f:
+        return f.read()
+
+
+def t():
+    c = load_cert('https-localhost.crt')
+    c = load_cert('ca-dsnet.crt')
+
+    #print 'issuer:      ', c.get_issuer()
+    #print 'SubjAltName: ', c.get_ext('subjectAltName').get_value()
+    print '-----'
+    print c.as_text()
+
+
+def set_x509_name(xn, name_dict):
+    # There appears to be a bug in X509_Name.__setattr__. This attribute
+    # must be assigned first
+    if 'serialNumber' in name_dict:
+        xn.serialNumber = name_dict['serialNumber']
+        name_dict = dict(name_dict)
+        del name_dict['serialNumber']
+
+    for k,v in name_dict.iteritems():
+        setattr(xn, k, v)
+
+
+# name_dict = dict( C = "UK", CN = "OpenSSL Group" )
+# extensions = [ ('subjectAltName', 'DNS:manager.dsnet', is_critical), ... ]
+def mkreq(nbits, name_dict, hash_alg='sha1', extensions=None):
+    pk  = EVP.PKey()
+    x   = X509.Request()
+    rsa = RSA.gen_key(nbits, 65537, lambda p, n, out : None)
+    
+    pk.assign_rsa(rsa)
+    
+    x.set_pubkey(pk)
+    
+    name = x.get_subject()
+
+    set_x509_name(name, name_dict)
+
+    if extensions:
+        extstack = X509.X509_Extension_Stack()
+        for xn, xv, is_critical in extensions:
+            ex = X509.new_extension(xn, xv, 1 if is_critical else 0)
+            extstack.push(ex)
+        x.add_extensions(extstack)
+        
+    x.sign(pk, hash_alg)
+    
+    return x, pk
+
+
+def mkcacert( nbits, name_dict, hash_alg='sha1', num_valid_days=3650 ):
+    req, pk = mkreq(nbits, name_dict, hash_alg=hash_alg)
+    pkey    = req.get_pubkey()
+    sub     = req.get_subject()
+    
+    cert = X509.X509()
+    cert.set_serial_number( random.getrandbits(127) )
+    cert.set_version(2)
+    cert.set_subject(sub)
+    
+    t = long(time.time()) + time.timezone
+    now = ASN1.ASN1_UTCTIME()
+    now.set_time(t)
+    
+    expiration = ASN1.ASN1_UTCTIME()
+    expiration.set_time(t + 60 * 60 * 24 * num_valid_days)
+    
+    cert.set_not_before(now)
+    cert.set_not_after(expiration)
+    
+    issuer = X509.X509_Name()
+
+    set_x509_name(issuer, name_dict)
+        
+    cert.set_issuer(issuer)
+    cert.set_pubkey(pkey)
+    
+    ext = X509.new_extension('basicConstraints', 'CA:TRUE, pathlen:0', 1)
+    cert.add_ext(ext)
+
+    ext = X509.new_extension('keyUsage', 'Certificate Sign, CRL Sign', 1)
+    cert.add_ext(ext)
+    
+    cert.sign(pk, hash_alg)
+
+    return cert, pk, pkey
+
+uuid=cat_file('/proc/sys/kernel/random/uuid').strip()
+
+#c, pk, pkey = mkcacert(1024, dict(serialNumber=uuid, CN='dsNet Manager CA', O='Cleversafe', L='Chicago', ST='Illinois', C='US'))
+c, pk, pkey = mkcacert(4096, dict(serialNumber=uuid, CN='dsNet Manager CA', O='Cleversafe', L='Chicago', ST='Illinois', C='US'), hash_alg='sha512')
+
+print c.as_text()
+                
+
