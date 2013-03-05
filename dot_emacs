@@ -12,12 +12,15 @@
 ;   
 ;   (global-set-key (kbd "C-<left>") 'cool)
 
-
 (global-font-lock-mode t)                  ; Globally enable syntax highlighting
 (setq font-lock-maximum-decoration t)      ; use colours in font lock mode
 (setq font-lock-maximum-size nil)          ; trun off limit on font lock mode
 
 (global-set-key "\M-g" 'goto-line)         ; Bind Alt-g
+
+(global-set-key "\M-s" 'ispell-word)       ; Bind Alt-s
+
+(global-set-key "\C-l" 'string-insert-rectangle); Bind C-l
  
 (setq-default truncate-lines t)            ; do not wrap lines
  
@@ -43,6 +46,30 @@
 (setq-default indent-tabs-mode nil)
 
 (set-face-attribute 'default nil :height 80)
+
+;-------------------------------------------------------------------------------
+; Ispell Configuration
+;
+(setq-default ispell-program-name "hunspell")
+(setq ispell-dictionary "american"
+  ispell-extra-args '() ;; TeX mode "-t"
+  ispell-silently-savep t
+  )
+
+(setq flyspell-mode-map nil)
+
+(add-hook 'ispell-initialize-spellchecker-hook
+          (lambda ()
+            (setq ispell-base-dicts-override-alist
+                  '((nil ; default
+                     "[A-Za-z]" "[^A-Za-z]" "[']" t
+                     ("-d" "en_US" "-i" "utf-8") nil utf-8)
+                    ("american" ; Yankee English
+                     "[A-Za-z]" "[^A-Za-z]" "[']" t
+                     ("-d" "en_US" "-i" "utf-8") nil utf-8)
+                    ("british" ; British English
+                     "[A-Za-z]" "[^A-Za-z]" "[']" t
+                     ("-d" "en_GB" "-i" "utf-8") nil utf-8)))))
 
 
 ;-------------------------------------------------------------------------------
